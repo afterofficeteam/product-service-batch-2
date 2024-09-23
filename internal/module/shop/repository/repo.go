@@ -23,13 +23,30 @@ func NewShopRepository(db *sqlx.DB) *shopRepository {
 
 func (r *shopRepository) CreateShop(ctx context.Context, req *entity.CreateShopRequest) (*entity.CreateShopResponse, error) {
 	var resp = new(entity.CreateShopResponse)
+	// shop_categories -> shop_id, category_id -> categories dan shops
 	// Your code here
+
+	tx, err := r.db.BeginTxx(ctx, nil)
+	defer func() {
+		if err != nil {
+			err := tx.Rollback()
+			if err != nil {
+				log.Error().Err(err).Msg("repository::CreateShop - Failed to rollback transaction")
+			}
+		} else {
+			err := tx.Commit()
+			if err != nil {
+				log.Error().Err(err).Msg("repository::CreateShop - Failed to commit transaction")
+			}
+		}
+	}()
+
 	query := `
 		INSERT INTO shops (user_id, name, description, terms)
 		VALUES (?, ?, ?, ?) RETURNING id
 	`
 
-	err := r.db.QueryRowContext(ctx, r.db.Rebind(query),
+	err = tx.QueryRowContext(ctx, r.db.Rebind(query),
 		req.UserId,
 		req.Name,
 		req.Description,
@@ -37,6 +54,19 @@ func (r *shopRepository) CreateShop(ctx context.Context, req *entity.CreateShopR
 	if err != nil {
 		log.Error().Err(err).Any("payload", req).Msg("repository::CreateShop - Failed to create shop")
 		return nil, err
+	}
+
+	query = `
+		INSERT INTO shop_categories (shop_id, category_id)
+		VALUES (?, ?)
+	`
+
+	for _, categoryId := range req.CategoryIds {
+		_, err = tx.ExecContext(ctx, r.db.Rebind(query), resp.Id, categoryId)
+		if err != nil {
+			log.Error().Err(err).Any("payload", req).Msg("repository::CreateShop - Failed to create shop category")
+			return nil, err
+		}
 	}
 
 	return resp, nil

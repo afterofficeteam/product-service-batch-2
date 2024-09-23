@@ -5,9 +5,10 @@ import "codebase-app/pkg/types"
 type CreateShopRequest struct {
 	UserId string `validate:"uuid" db:"user_id"`
 
-	Name        string `json:"name" validate:"required" db:"name"`
-	Description string `json:"description" validate:"required,max=255" db:"description"`
-	Terms       string `json:"terms" validate:"required" db:"terms"`
+	Name        string   `json:"name" validate:"required" db:"name"`
+	Description string   `json:"description" validate:"required,max=255" db:"description"`
+	Terms       string   `json:"terms" validate:"required" db:"terms"`
+	CategoryIds []string `json:"category_ids" validate:"required"` // example: ["uuid1", "uuid2"]
 }
 
 type CreateShopResponse struct {

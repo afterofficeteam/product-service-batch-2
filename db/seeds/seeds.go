@@ -7,7 +7,6 @@ import (
 
 	"github.com/brianvoe/gofakeit/v7"
 	"github.com/jmoiron/sqlx"
-	"github.com/oklog/ulid/v2"
 	"github.com/rs/zerolog/log"
 )
 
@@ -36,6 +35,12 @@ func (s *Seed) run(table string, total int) {
 		s.rolesSeed()
 	case "users":
 		s.usersSeed(total)
+	case "shops":
+		s.shopsSeed(total)
+	case "product_categories":
+		s.productCategoriesSeed(total)
+	case "products":
+		s.productsSeed(total)
 	case "all":
 		s.rolesSeed()
 		s.usersSeed(total)
@@ -127,102 +132,77 @@ func (s *Seed) rolesSeed() {
 	log.Info().Msg("roles table seeded successfully")
 }
 
-// users
-func (s *Seed) usersSeed(total int) {
-	tx, err := s.db.BeginTxx(context.Background(), nil)
-	if err != nil {
-		log.Error().Err(err).Msg("Error starting transaction")
-		return
-	}
-	defer func() {
-		if err != nil {
-			err = tx.Rollback()
-			log.Error().Err(err).Msg("Error rolling back transaction")
-			return
-		}
-
-		err = tx.Commit()
-		if err != nil {
-			log.Error().Err(err).Msg("Error committing transaction")
-		}
-	}()
-
-	type generalData struct {
-		Id   string `db:"id"`
-		Name string `db:"name"`
-	}
-
+func (s *Seed) productCategoriesSeed(total int) {
 	var (
-		roles    = make([]generalData, 0)
-		userMaps = make([]map[string]any, 0)
+		args  = make([]map[string]any, 0)
+		query = "INSERT INTO product_categories (name) VALUES (:name)"
 	)
-
-	err = s.db.Select(&roles, `SELECT id, name FROM roles`)
-	if err != nil {
-		log.Error().Err(err).Msg("Error selecting roles")
-		return
-	}
 
 	for i := 0; i < total; i++ {
-		selectedRole := roles[gofakeit.Number(0, len(roles)-1)]
+		var (
+			name = gofakeit.ProductCategory()
+			arg  = make(map[string]any)
+		)
 
-		dataUserToInsert := make(map[string]any)
-		dataUserToInsert["id"] = ulid.Make().String()
-		dataUserToInsert["role_id"] = selectedRole.Id
-		dataUserToInsert["name"] = gofakeit.Name()
-		dataUserToInsert["email"] = gofakeit.Email()
-		dataUserToInsert["whatsapp_number"] = gofakeit.Phone()
-		dataUserToInsert["password"] = "$2y$10$mVf4BKsfPSh/pjgHjvk.JOlGdkIYgBGyhaU9WQNMWpYskK9MZlb0G" // password
-
-		userMaps = append(userMaps, dataUserToInsert)
+		arg["name"] = name
+		args = append(args, arg)
 	}
 
+	_, err := s.db.NamedExec(query, args)
+	if err != nil {
+		log.Error().Err(err).Msg("Error creating product categories")
+	}
+
+	log.Info().Msg("product_categories table seeded successfully")
+}
+
+func (s *Seed) shopsSeed(total int) {
 	var (
-		endUserId   string
-		adminUserId string
+		query = "INSERT INTO shops (name) VALUES (:name)"
 	)
 
-	// iterate over roles to get service advisor id
-	for _, role := range roles {
-		if role.Name == "admin" {
-			adminUserId = role.Id
-			continue
-		}
-		if role.Name == "end_user" {
-			endUserId = role.Id
-			continue
+	query = "INSERT INTO shops (name, description, terms, user_id) VALUES (?, ?, ?, ?)"
+
+	for i := 0; i < total; i++ {
+		_, err := s.db.Exec(s.db.Rebind(query), gofakeit.Company(), gofakeit.HackerPhrase(), gofakeit.HackerPhrase(), gofakeit.UUID())
+		if err != nil {
+			log.Error().Err(err).Msg("Error creating shops")
+			return
 		}
 	}
 
-	EndUser := map[string]any{
-		"id":              ulid.Make().String(),
-		"role_id":         endUserId,
-		"name":            "Irham",
-		"email":           "irham@fake.com",
-		"whatsapp_number": gofakeit.Phone(),
-		"password":        "$2y$10$mVf4BKsfPSh/pjgHjvk.JOlGdkIYgBGyhaU9WQNMWpYskK9MZlb0G", // password
+	log.Info().Msg("shops table seeded successfully")
+}
+
+func (s *Seed) productsSeed(total int) {
+	var (
+		query = `
+			INSERT INTO products(
+				name,
+				description,
+				price,
+				stock,
+				shop_id,
+				category_id
+			) VALUES (
+			 	?, ?, ?,
+				20000,
+				(SELECT id FROM shops ORDER BY RANDOM() LIMIT 1),
+				(SELECT id FROM product_categories ORDER BY RANDOM() LIMIT 1)
+			)`
+	)
+
+	for i := 0; i < total; i++ {
+		_, err := s.db.Exec(s.db.Rebind(query),
+			gofakeit.Product().Name,
+			gofakeit.HackerPhrase(),
+			gofakeit.Price(1000, 10000),
+		)
+		if err != nil {
+			log.Error().Err(err).Msg("Error creating products")
+			return
+		}
 	}
 
-	AdminUser := map[string]any{
-		"id":              ulid.Make().String(),
-		"role_id":         adminUserId,
-		"name":            "Fathan",
-		"email":           "fathan@fake.com",
-		"whatsapp_number": gofakeit.Phone(),
-		"password":        "$2y$10$mVf4BKsfPSh/pjgHjvk.JOlGdkIYgBGyhaU9WQNMWpYskK9MZlb0G", // password
-	}
-
-	userMaps = append(userMaps, EndUser)
-	userMaps = append(userMaps, AdminUser)
-
-	_, err = tx.NamedExec(`
-		INSERT INTO users (id, role_id, name, email, whatsapp_number, password)
-		VALUES (:id, :role_id, :name, :email, :whatsapp_number, :password)
-	`, userMaps)
-	if err != nil {
-		log.Error().Err(err).Msg("Error creating users")
-		return
-	}
-
-	log.Info().Msg("users table seeded successfully")
+	log.Info().Msg("products table seeded successfully")
 }
